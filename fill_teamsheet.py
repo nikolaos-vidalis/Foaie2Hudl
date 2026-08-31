@@ -12,10 +12,10 @@ The template's tables have a fixed shape, so cells are addressed by index:
 Column 2 of tables[1] holds the vertically merged "STARTING XI" / "SUBSTITUTES"
 labels and is never written to.
 
-The output is never translated: it reproduces the template's own (English) labels
-plus the data extracted from the PDF, and nothing else. The app's language setting
-affects the website only -- no UI or localized string may ever be written into the
-teamsheet, so this module takes no language argument by design.
+The output is never translated: it reproduces the template's own (English) labels,
+the data extracted from the PDF and fixed (GK) / (C) markers. The app's language
+setting affects the website only -- no UI or localized string may ever be written
+into the teamsheet, so this module takes no language argument by design.
 """
 
 import copy
@@ -29,10 +29,28 @@ from docx.shared import RGBColor
 # (FF0000). The template must not be edited, so every run written is forced black.
 BLACK = RGBColor(0, 0, 0)
 
+# Markers appended to a player's name in the output. Fixed English, never localized:
+# the document must read the same regardless of the website's language setting.
+GK_MARKER, CAPTAIN_MARKER = "GK", "C"
+
 STARTERS_START, STARTERS_ROWS = 2, 11
 SUBS_START, SUBS_ROWS = 13, 9
 
 HOME_NUMBER, HOME_NAME, AWAY_NAME, AWAY_NUMBER = 0, 1, 3, 4
+
+
+def player_markers(player):
+    """The "(GK)" / "(C)" / "(GK/C)" marker for a player, or "" if neither applies."""
+    markers = [GK_MARKER] if player["gk"] else []
+    if player["captain"]:
+        markers.append(CAPTAIN_MARKER)
+    return f"({'/'.join(markers)})" if markers else ""
+
+
+def player_display_name(player):
+    """Player name with any (GK) / (C) / (GK/C) marker appended."""
+    markers = player_markers(player)
+    return f"{player['name']} {markers}" if markers else player["name"]
 
 
 def set_cell_text(cell, text):
@@ -82,10 +100,12 @@ def _fill_block(table, start, rows, home_players, away_players):
         cells = table.rows[start + index].cells
         home = home_players[index] if index < len(home_players) else None
         away = away_players[index] if index < len(away_players) else None
-        set_cell_text(cells[HOME_NUMBER], home[0] if home else "")
-        set_cell_text(cells[HOME_NAME], home[1] if home else "")
-        set_cell_text(cells[AWAY_NAME], away[1] if away else "")
-        set_cell_text(cells[AWAY_NUMBER], away[0] if away else "")
+        # The template has no GK / captain column, so those flags are appended to the
+        # name instead.
+        set_cell_text(cells[HOME_NUMBER], home["number"] if home else "")
+        set_cell_text(cells[HOME_NAME], player_display_name(home) if home else "")
+        set_cell_text(cells[AWAY_NAME], player_display_name(away) if away else "")
+        set_cell_text(cells[AWAY_NUMBER], away["number"] if away else "")
 
 
 def fill(data, template_path):

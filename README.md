@@ -5,7 +5,7 @@
 Un instrument automatizat creat pentru antrenorii și analiștii de performanță din fotbalul juvenil din România, cu scopul de a simplifica munca administrativă de după meci.
 
 ## Descriere
-Conversia foilor oficiale de arbitraj (din format `.pdf`) în documente structurate este un proces manual și de durată. **Foaie2Hudl** extrage automat datele din raportul arbitrului, competiția, data, rezultatul, numele echipelor, loturile de jucători și numerele de tricou. Completează șablonul de foaie de echipă Hudl/Wyscout, gata de descărcat ca `.docx`.
+Conversia foilor oficiale de arbitraj (din format `.pdf`) în documente structurate este un proces manual și de durată. **Foaie2Hudl** extrage automat datele din raportul arbitrului, competiția, data, rezultatul, numele echipelor, loturile de jucători și numerele de tricou. Completează șablonul de foaie de meci Hudl/Wyscout, gata de descărcat ca `.docx`.
 
 ### Funcționalități principale
 * **Extragere automată:** Procesează rapoartele `.pdf` ale arbitrilor pentru a colecta titularii, rezervele, numerele de pe tricou și datele despre meci.
@@ -29,9 +29,9 @@ Aplicația este disponibilă online, gata de folosit:
 
 ### 👉 [foaie2hudl.streamlit.app](https://foaie2hudl.streamlit.app/)
 
-Interfața are trei panouri: în **stânga** încarci rapoartele, la **mijloc** este identitatea aplicației și comutatorul de limbă (română / engleză), în **dreapta** apar foile de echipă generate.
+Interfața are trei panouri: în **stânga** încarci rapoartele, la **mijloc** este identitatea aplicației și comutatorul de limbă (română / engleză), în **dreapta** apar foile de meci Hudl generate.
 
-Încarcă unul sau mai multe rapoarte de arbitraj, verifică rezumatul afișat pentru fiecare meci și descarcă foile de echipă, individual sau toate într-o arhivă `.zip`.
+Încarcă unul sau mai multe rapoarte de arbitraj, verifică rezumatul afișat pentru fiecare meci și descarcă foile de meci Hudl, individual sau toate într-o arhivă `.zip`.
 
 Fișierele generate sunt denumite după competiție, dată și echipe:
 

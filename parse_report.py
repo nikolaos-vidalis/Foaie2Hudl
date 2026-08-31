@@ -14,6 +14,10 @@ Layout notes that drive the parsing below (verified against a sample report):
       surname                <- name column, ~5pt above
       number   [P] [C]       <- number column (x < 60), plus GK / captain markers
       given names            <- name column, ~5pt below
+
+Each player is returned as a dict: number, name, gk, captain. The gk / captain flags
+come from the report's own markers; the Hudl template has no column for them, so they
+are rendered as a "(GK)" / "(C)" suffix on the name (see fill_teamsheet.py).
 """
 
 import re
@@ -23,6 +27,13 @@ import pdfplumber
 # Column geometry, in PDF points from the left edge of the page.
 NUMBER_MAX_X = 60.0          # shirt-number column
 NAME_MIN_X, NAME_MAX_X = 140.0, 425.0   # "Nume prenume"; excludes Foto and Info personal
+
+# Marker glyphs on the shirt-number line. The x-bands matter: a second "(c)" glyph sits
+# at x0 ~ 393 in the "generata cu Football Connect (c)" footer of every page, so the
+# glyph alone is not enough to identify a captain.
+GK_GLYPH, CAPTAIN_GLYPH = "℗", "©"
+GK_MAX_X = 75.0
+CAPTAIN_MIN_X, CAPTAIN_MAX_X = 75.0, 110.0
 
 LINE_TOLERANCE = 2.5         # words within this many points share a line
 ROW_SPAN = 14.0              # max gap between a number and its surname / given-name line
@@ -126,7 +137,19 @@ def _squad_page(page, squads):
             continue
 
         bucket = "starters" if section == "Titulari" else "subs"
-        squad[bucket].append((int(numbers[0]), name))
+        squad[bucket].append(
+            {
+                "number": int(numbers[0]),
+                "name": name,
+                "gk": any(
+                    w["text"] == GK_GLYPH and w["x0"] < GK_MAX_X for w in line["words"]
+                ),
+                "captain": any(
+                    w["text"] == CAPTAIN_GLYPH and CAPTAIN_MIN_X <= w["x0"] < CAPTAIN_MAX_X
+                    for w in line["words"]
+                ),
+            }
+        )
 
 
 def _match_info(page):

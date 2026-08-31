@@ -14,7 +14,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from fill_teamsheet import fill
+from fill_teamsheet import fill, player_display_name, player_markers
 from parse_report import parse
 
 ROOT = Path(__file__).parent
@@ -23,6 +23,8 @@ IMAGE = ROOT / "assets" / "frf-to-hudl.png"
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MAX_UPLOAD_MB = 5
+STARTERS_EXPECTED = 11
+BANNER_IMAGE_WIDTH = 360      # px; the banner is full width, the logo must not be
 SOURCE_URL = "https://www.footballconnect.ro"
 
 # Characters Windows forbids in filenames.
@@ -30,7 +32,7 @@ ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 TEXTS = {
     "ro": {
-        "tagline": "Din raportul arbitrului direct în foaia de echipă Hudl.",
+        "tagline": "Din raportul arbitrului direct în foaia de meci Hudl.",
         "upload_header": "1 · Rapoarte de arbitraj",
         "upload_intro": (
             "Încarcă **raportul complet de arbitraj** (`Raport Arbitru`, `.pdf`) descărcat din "
@@ -43,8 +45,8 @@ TEXTS = {
             "Este necesar raportul complet de arbitraj din www.footballconnect.ro, care "
             "include ambele echipe, foaia de meci a unei singure echipe nu este suficientă."
         ),
-        "download_header": "2 · Foi de echipă",
-        "empty_state": "Foile de echipă apar aici după încărcarea rapoartelor.",
+        "download_header": "2 · Foi de meci Hudl",
+        "empty_state": "Foile de meci Hudl apar aici după încărcarea rapoartelor.",
         "download_one": "Descarcă .docx",
         "download_all": "Descarcă toate ({count}) ca .zip",
         "squad_summary": "{starters} titulari · {subs} rezerve",
@@ -68,9 +70,14 @@ TEXTS = {
         "privacy_title": "Datele tale nu sunt stocate.",
         "privacy_body": (
             "Rapoartele încărcate sunt procesate temporar, în memorie, doar pe durata "
-            "sesiunii curente. Nimic nu este salvat pe server, iar foile de echipă sunt "
-            "generate în memorie și trimise direct în browserul tău."
+            "sesiunii curente. Nimic nu este salvat pe server, iar foile de meci Hudl "
+            "sunt generate în memorie și trimise direct în browserul tău."
         ),
+        "preview_label": "Vezi loturile",
+        "preview_starters": "Titulari",
+        "preview_subs": "Rezerve",
+        "warn_starters": "{team}: {count} titulari găsiți (așteptăm 11) — verifică raportul.",
+        "warn_no_subs": "{team}: nicio rezervă găsită — verifică raportul.",
         "side_home": "gazde",
         "side_away": "oaspeți",
     },
@@ -116,6 +123,11 @@ TEXTS = {
             "session only. Nothing is saved on the server, and the team sheets are built "
             "in memory and sent straight to your browser."
         ),
+        "preview_label": "View squads",
+        "preview_starters": "Starting XI",
+        "preview_subs": "Substitutes",
+        "warn_starters": "{team}: found {count} starters (expected 11) — check the report.",
+        "warn_no_subs": "{team}: no substitutes found — check the report.",
         "side_home": "home",
         "side_away": "away",
     },
@@ -169,6 +181,44 @@ def unique_name(name, taken):
     return f"{stem}_{index}.{suffix}"
 
 
+def escape_cell(text):
+    """Markdown-table-safe text: a stray pipe would otherwise split the cell."""
+    return str(text).replace("|", r"\|")
+
+
+def home_cell(player):
+    """Home name cell: "Name (C)" -- the same text the document carries."""
+    return escape_cell(player_display_name(player))
+
+
+def away_cell(player):
+    """Away name cell: mirrored, so the marker leads -- "(GK) Name"."""
+    markers = player_markers(player)
+    return escape_cell(f"{markers} {player['name']}" if markers else player["name"])
+
+
+def squad_table(home_players, away_players, home_name, away_name):
+    """One preview block as a Markdown table.
+
+    Four columns mirroring the template's "No. | Player | Player | No.", so the numbers
+    line up in narrow outer columns. Markdown rather than st.dataframe because its
+    alignment row can right-align the away side -- column_config cannot -- and because
+    it wraps long names instead of truncating them.
+    """
+    rows = [
+        f"| # | {escape_cell(home_name)} | {escape_cell(away_name)} | # |",
+        "|--:|:---|---:|:--|",          # numbers hug the names, names hug the outer edges
+    ]
+    for index in range(max(len(home_players), len(away_players))):
+        home = home_players[index] if index < len(home_players) else None
+        away = away_players[index] if index < len(away_players) else None
+        rows.append(
+            f"| {home['number'] if home else ''} | {home_cell(home) if home else ''} "
+            f"| {away_cell(away) if away else ''} | {away['number'] if away else ''} |"
+        )
+    return "\n".join(rows)
+
+
 def error_message(error, texts, filename):
     """Localized message for a failed report, falling back to the raw text."""
     code = getattr(error, "code", None)
@@ -184,51 +234,103 @@ def error_message(error, texts, filename):
     return f"{texts['error_prefix'].format(name=filename)} — {detail}"
 
 
-st.set_page_config(page_title="Foaie2Hudl", page_icon="⚽", layout="wide")
+st.set_page_config(
+    page_title="Foaie2Hudl",
+    page_icon=":material/sports_soccer:",
+    layout="wide",
+)
 
 language = st.session_state.get("language", "ro")
 texts = TEXTS[language]
 
-left, middle, right = st.columns(3, gap="large")
+# Four things Streamlit has no parameter for: the default 6rem of dead space above the
+# banner, Markdown table sizing, right-aligning the empty-state alert (st.info takes no
+# text_alignment), and right-aligning the expander label.
+st.markdown(
+    """
+    <style>
+      [data-testid="stMainBlockContainer"] { padding-top: 2.5rem; }
+
+      /* Tables size to their content by default, which leaves the mirrored away column
+         floating mid-card and the two name columns unequal. Fixed layout splits them
+         evenly and keeps both tables of a card identical. */
+      [data-testid="stMarkdown"] table { width: 100%; table-layout: fixed; }
+      [data-testid="stMarkdown"] table th:first-child,
+      [data-testid="stMarkdown"] table td:first-child,
+      [data-testid="stMarkdown"] table th:last-child,
+      [data-testid="stMarkdown"] table td:last-child { width: 3rem; }
+      [data-testid="stMarkdown"] table th:nth-child(2),
+      [data-testid="stMarkdown"] table td:nth-child(2),
+      [data-testid="stMarkdown"] table th:nth-child(3),
+      [data-testid="stMarkdown"] table td:nth-child(3) { width: calc((100% - 6rem) / 2); }
+
+      /* Only the empty-state alert: the privacy alert stays left-aligned. */
+      .st-key-empty-state [data-testid="stAlert"],
+      .st-key-empty-state [data-testid="stAlert"] p { text-align: right; }
+
+      /* Expander label: its wrapper is width:100%, so it must be shrunk to its content
+         before justify-end can push the icon and text to the right together. */
+      [data-testid="stExpander"] summary > span { justify-content: flex-end; }
+      [data-testid="stExpander"] summary > span > div { flex: 0 0 auto; width: auto; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# --- Banner: branding and language, centred on the page -----------------------------
+# A full-width strip rather than a middle column: with an asymmetric column split the
+# middle column is not the page centre, so the title never reads as centred.
+with st.container(horizontal_alignment="center"):
+    st.image(str(IMAGE), width=BANNER_IMAGE_WIDTH)
+    st.title("Foaie2Hudl", anchor=False, text_alignment="center")
+    st.caption(texts["tagline"], text_alignment="center")
+    # No visible label: the two buttons are self-explanatory. The label is kept but
+    # collapsed so screen readers still announce the control.
+    st.segmented_control(
+        texts["language_label"],
+        list(LANGUAGE_NAMES),
+        default=language,
+        required=True,
+        format_func=LANGUAGE_NAMES.get,
+        label_visibility="collapsed",
+        key="language",
+    )
+
+st.space("small")
+
+left, right = st.columns([1, 1.5], gap="large")          # 40 / 60 %
 
 # --- Left: upload -------------------------------------------------------------------
-with left.container(border=True, height="stretch"):
-    st.subheader(texts["upload_header"])
+with left:
+    st.subheader(f":material/upload_file: {texts['upload_header']}", anchor=False)
     st.caption(texts["upload_intro"])
+    # A stable key is essential: without it Streamlit derives the widget's identity from
+    # its parameters, so switching language (which changes the label and help text) would
+    # create a "new" uploader and silently discard the files already uploaded.
     uploads = st.file_uploader(
         texts["uploader_label"],
         type="pdf",
         accept_multiple_files=True,
         max_upload_size=MAX_UPLOAD_MB,
         help=texts["uploader_help"],
+        key="uploads",
     )
     st.info(
         f"**{texts['privacy_title']}** {texts['privacy_body']}",
         icon=":material/lock:",
     )
 
-# --- Middle: branding and language --------------------------------------------------
-with middle.container(border=True, height="stretch"):
-    with st.container(horizontal_alignment="center"):
-        st.image(str(IMAGE), width="stretch")
-        st.title("Foaie2Hudl")
-        st.caption(texts["tagline"])
-        st.space("small")
-        st.segmented_control(
-            texts["language_label"],
-            list(LANGUAGE_NAMES),
-            default=language,
-            required=True,
-            format_func=LANGUAGE_NAMES.get,
-            key="language",
-        )
-
 # --- Right: generated teamsheets ----------------------------------------------------
-with right.container(border=True, height="stretch"):
-    st.subheader(texts["download_header"])
+with right:
+    st.subheader(
+        f":material/description: {texts['download_header']}",
+        anchor=False,
+        text_alignment="right",
+    )
 
     if not uploads:
-        st.info(texts["empty_state"])
+        with st.container(key="empty-state"):
+            st.info(texts["empty_state"])
     else:
         results, failures = [], []
         with st.spinner(texts["processing"]):
@@ -258,14 +360,18 @@ with right.container(border=True, height="stretch"):
                 mime="application/zip",
                 type="primary",
                 width="stretch",
+                icon=":material/folder_zip:",
                 key="download_all",
             )
 
         for index, (data, document) in enumerate(results):
             home, away = data["home"], data["away"]
             with st.container(border=True):
-                st.markdown(f"**{home['name']} {data['score']} {away['name']}**")
-                st.caption(f"{data['competition']} · {data['date']}")
+                st.markdown(
+                    f"**{home['name']} {data['score']} {away['name']}**",
+                    text_alignment="center",
+                )
+                st.caption(f"{data['competition']} · {data['date']}", text_alignment="center")
                 st.caption(
                     f"{home['name']}: "
                     + texts["squad_summary"].format(
@@ -274,16 +380,42 @@ with right.container(border=True, height="stretch"):
                     + f"  \n{away['name']}: "
                     + texts["squad_summary"].format(
                         starters=len(away["starters"]), subs=len(away["subs"])
-                    )
+                    ),
+                    text_alignment="center",
                 )
+                for squad in (home, away):
+                    if len(squad["starters"]) != STARTERS_EXPECTED:
+                        st.warning(
+                            texts["warn_starters"].format(
+                                team=squad["name"], count=len(squad["starters"])
+                            ),
+                            icon=":material/warning:",
+                        )
+                    if not squad["subs"]:
+                        st.warning(
+                            texts["warn_no_subs"].format(team=squad["name"]),
+                            icon=":material/warning:",
+                        )
+
                 st.download_button(
                     texts["download_one"],
                     document,
                     file_name=teamsheet_filename(data),
                     mime=DOCX_MIME,
                     width="stretch",
+                    icon=":material/download:",
                     key=f"download_{index}",
                 )
+
+                with st.expander(texts["preview_label"], icon=":material/groups:"):
+                    for label, key in (
+                        (texts["preview_starters"], "starters"),
+                        (texts["preview_subs"], "subs"),
+                    ):
+                        st.caption(label, text_alignment="center")
+                        st.markdown(
+                            squad_table(home[key], away[key], home["name"], away["name"])
+                        )
 
         for message in failures:
             st.error(message)
