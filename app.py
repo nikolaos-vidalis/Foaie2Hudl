@@ -34,14 +34,14 @@ TEXTS = {
         "upload_header": "1 · Rapoarte de arbitraj",
         "upload_intro": (
             "Încarcă **raportul complet de arbitraj** (`Raport Arbitru`, `.pdf`) descărcat din "
-            f"[www.footballconnect.ro]({SOURCE_URL}) — cel care conține foile de meci ale "
+            f"[www.footballconnect.ro]({SOURCE_URL}) cel care conține foile de meci ale "
             "**ambelor** echipe, nu foaia unei singure echipe."
         ),
         "uploader_label": "Rapoarte de arbitraj (PDF)",
         "uploader_help": (
             "Poți încărca mai multe rapoarte simultan; fiecare este convertit separat. "
             "Este necesar raportul complet de arbitraj din www.footballconnect.ro, care "
-            "include ambele echipe — foaia de meci a unei singure echipe nu este suficientă."
+            "include ambele echipe, foaia de meci a unei singure echipe nu este suficientă."
         ),
         "download_header": "2 · Foi de echipă",
         "empty_state": "Foile de echipă apar aici după încărcarea rapoartelor.",
@@ -79,14 +79,14 @@ TEXTS = {
         "upload_header": "1 · Referee reports",
         "upload_intro": (
             "Upload the **complete referee report** (`Raport Arbitru`, `.pdf`) downloaded from "
-            f"[www.footballconnect.ro]({SOURCE_URL}) — the one containing the team sheets of "
+            f"[www.footballconnect.ro]({SOURCE_URL}) the one containing the team sheets of "
             "**both** clubs, not a single team's own sheet."
         ),
         "uploader_label": "Referee reports (PDF)",
         "uploader_help": (
             "You can upload several reports at once; each is converted separately. "
             "The complete referee report from www.footballconnect.ro is required, as it "
-            "includes both teams -- a single team's own sheet is not enough."
+            "includes both teams, a single team's own sheet is not enough."
         ),
         "download_header": "2 · Team sheets",
         "empty_state": "Generated team sheets will appear here once you upload reports.",
