@@ -35,7 +35,16 @@ INFO_TOKEN = re.compile(r"^(născut|FIFA|ID:|\d{2}\.\d{2}\.\d{4})", re.IGNORECAS
 
 
 class ParseError(Exception):
-    """The PDF did not look like an FRF referee report."""
+    """The PDF did not look like an FRF referee report.
+
+    Carries a machine-readable `code` (and optional `sides`) so the UI can show a
+    localized message, while `str()` stays a useful Romanian message on its own.
+    """
+
+    def __init__(self, message, code=None, sides=None):
+        super().__init__(message)
+        self.code = code
+        self.sides = sides or []
 
 
 def _group_lines(words):
@@ -128,7 +137,11 @@ def _match_info(page):
     score = re.search(r"Rezultat\s+partid[ăa]\s*\n\s*(\d+)\s*-\s*(\d+)", text)
 
     if not date:
-        raise ParseError("Nu am găsit data meciului (câmpul 'Data:') în raport.")
+        raise ParseError(
+            "Nu am găsit data meciului (câmpul 'Data:') în raport. "
+            "Verifică dacă ai încărcat raportul de arbitraj din www.footballconnect.ro.",
+            code="no_date",
+        )
 
     day, month, year = date.groups()
     return {
@@ -143,7 +156,7 @@ def parse(file_like):
     """Parse a referee report PDF into match info plus both squads."""
     with pdfplumber.open(file_like) as pdf:
         if not pdf.pages:
-            raise ParseError("PDF-ul este gol.")
+            raise ParseError("PDF-ul este gol.", code="empty_pdf")
 
         info = _match_info(pdf.pages[0])
 
@@ -154,9 +167,14 @@ def parse(file_like):
 
     missing = [side for side in ("home", "away") if side not in squads]
     if missing:
+        sides = ", ".join("gazde" if s == "home" else "oaspeți" for s in missing)
         raise ParseError(
-            "Nu am găsit foile de meci pentru: "
-            + ", ".join("gazde" if s == "home" else "oaspeți" for s in missing)
+            f"Nu am găsit foaia de meci pentru: {sides}. "
+            "Verifică dacă ai încărcat raportul complet de arbitraj din "
+            "www.footballconnect.ro (care include ambele echipe), "
+            "nu foaia de meci a unei singure echipe.",
+            code="missing_sides",
+            sides=missing,
         )
 
     info["home"] = squads["home"]

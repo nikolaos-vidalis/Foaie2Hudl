@@ -11,12 +11,23 @@ The template's tables have a fixed shape, so cells are addressed by index:
 
 Column 2 of tables[1] holds the vertically merged "STARTING XI" / "SUBSTITUTES"
 labels and is never written to.
+
+The output is never translated: it reproduces the template's own (English) labels
+plus the data extracted from the PDF, and nothing else. The app's language setting
+affects the website only -- no UI or localized string may ever be written into the
+teamsheet, so this module takes no language argument by design.
 """
 
 import copy
 import io
 
 from docx import Document
+from docx.oxml.ns import qn
+from docx.shared import RGBColor
+
+# The template marks the competition, date, scoreline and team-name placeholders red
+# (FF0000). The template must not be edited, so every run written is forced black.
+BLACK = RGBColor(0, 0, 0)
 
 STARTERS_START, STARTERS_ROWS = 2, 11
 SUBS_START, SUBS_ROWS = 13, 9
@@ -30,13 +41,27 @@ def set_cell_text(cell, text):
     Template placeholders are split across several runs ("P" + "layer" + "n" + "ame"),
     so the first run is reused and the rest removed -- assigning `cell.text` would
     throw away the cell's alignment and font.
+
+    The reused run may carry the placeholder's red colour, so it is forced to black;
+    everything else (font, size, alignment) is left untouched.
     """
     paragraph = cell.paragraphs[0]
     if not paragraph.runs:
         paragraph.add_run("")
-    paragraph.runs[0].text = str(text)
-    for run in paragraph.runs[1:]:
-        run._element.getparent().remove(run._element)
+
+    run = paragraph.runs[0]
+    run.text = str(text)
+    run.font.color.rgb = BLACK
+
+    # The paragraph mark carries its own colour; recolour it too, so text typed into
+    # the cell afterwards does not come out red.
+    mark_properties = paragraph._p.get_or_add_pPr().find(qn("w:rPr"))
+    if mark_properties is not None:
+        for colour in mark_properties.findall(qn("w:color")):
+            colour.set(qn("w:val"), "000000")
+
+    for leftover in paragraph.runs[1:]:
+        leftover._element.getparent().remove(leftover._element)
     for extra in cell.paragraphs[1:]:
         extra._element.getparent().remove(extra._element)
 
