@@ -1,0 +1,13 @@
+# Match reports and generated teamsheets stay local
+*.pdf
+*.doc
+*.docx
+
+# ...except the blank template, which the app needs in order to run
+!Wyscout teamsheet template.docx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
