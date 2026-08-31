@@ -51,7 +51,7 @@ Documentul generat nu este niciodată tradus, conține etichetele proprii ale ș
 -----
 
 > **Confidențialitatea datelor:**
-> Aplicația Streamlit nu stochează și nu păstrează niciun fel de date sau fișiere încărcate. Procesarea fișierelor se realizează exclusiv temporar, în memorie, pe durata sesiunii curente. Aceeași explicație este afișată și în aplicație, sub zona de încărcare.
+> Aplicația Streamlit nu stochează și nu păstrează niciun fel de date sau fișiere încărcate. Procesarea fișierelor se realizează exclusiv temporar, în memorie, pe durata sesiunii curente.
 >
 > **Data Privacy:**
-> *The Streamlit application does not retain or store any uploaded data or files. All processing is carried out temporarily in memory for the duration of the active session. The same explanation is shown inside the app, below the upload area.*
+> *The Streamlit application does not retain or store any uploaded data or files. All processing is carried out temporarily in memory for the duration of the active session.*
