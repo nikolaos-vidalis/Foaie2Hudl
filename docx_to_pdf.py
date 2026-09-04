@@ -1,9 +1,9 @@
-"""Convert in-memory .docx bytes to PDF bytes across platforms.
+"""Convert in-memory .docx bytes to PDF bytes.
 
-Tries conversion engines in order:
-1. Microsoft Word COM automation (Windows only, exact template fidelity)
-2. LibreOffice / soffice CLI (Linux / Streamlit Cloud with packages.txt)
-3. dxpdf (pure Python/Rust cross-platform converter)
+Uses LibreOffice (soffice) when available (e.g. Streamlit Cloud via packages.txt
+or Windows/Linux/macOS with LibreOffice installed).
+
+On Windows, seamlessly falls back to Microsoft Word COM if LibreOffice is not installed.
 """
 
 import shutil
@@ -12,35 +12,67 @@ import sys
 import tempfile
 from pathlib import Path
 
+STANDARD_SOFFICE_PATHS = [
+    "/usr/bin/soffice",
+    "/usr/bin/libreoffice",
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+]
+
 
 def convert(docx_bytes: bytes) -> bytes:
     """Return *docx_bytes* rendered to PDF.
 
-    Tries Windows COM first, then LibreOffice headless, then dxpdf.
+    Tries LibreOffice first, then falls back to Microsoft Word COM on Windows.
     """
-    errors = []
+    # 1. Try LibreOffice (works on Cloud via packages.txt and locally if installed)
+    soffice = (
+        shutil.which("soffice")
+        or shutil.which("libreoffice")
+        or next((p for p in STANDARD_SOFFICE_PATHS if Path(p).exists()), None)
+    )
+    if soffice:
+        try:
+            return _convert_libreoffice(soffice, docx_bytes)
+        except Exception:
+            pass
 
-    # 1. Windows: Microsoft Word COM automation
+    # 2. Fall back to Microsoft Word COM on Windows
     if sys.platform == "win32":
         try:
             return _convert_word_com(docx_bytes)
         except Exception as exc:
-            errors.append(f"Word COM: {exc}")
+            raise RuntimeError(f"Word COM conversion failed: {exc}") from exc
 
-    # 2. Linux / macOS / Windows with LibreOffice installed
-    try:
-        return _convert_libreoffice(docx_bytes)
-    except Exception as exc:
-        errors.append(f"LibreOffice: {exc}")
+    raise RuntimeError(
+        "No PDF converter available. (LibreOffice not found and Word COM unavailable on non-Windows)."
+    )
 
-    # 3. Pure Python / Rust fallback (dxpdf)
-    try:
-        import dxpdf
-        return dxpdf.convert(docx_bytes)
-    except Exception as exc:
-        errors.append(f"dxpdf: {exc}")
 
-    raise RuntimeError(" | ".join(errors) if errors else "No PDF converter available.")
+def _convert_libreoffice(soffice_bin: str, docx_bytes: bytes) -> bytes:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        in_file = tmp_path / "teamsheet.docx"
+        in_file.write_bytes(docx_bytes)
+
+        cmd = [
+            str(soffice_bin),
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(tmp_path),
+            str(in_file),
+        ]
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30
+        )
+        out_file = tmp_path / "teamsheet.pdf"
+        if not out_file.exists():
+            raise RuntimeError(
+                f"LibreOffice output missing: {result.stderr.decode('utf-8', errors='ignore')}"
+            )
+        return out_file.read_bytes()
 
 
 def _convert_word_com(docx_bytes: bytes) -> bytes:
@@ -91,37 +123,3 @@ def _convert_word_com(docx_bytes: bytes) -> bytes:
             except Exception:
                 pass
         pythoncom.CoUninitialize()
-
-
-def _convert_libreoffice(docx_bytes: bytes) -> bytes:
-    soffice = (
-        shutil.which("soffice")
-        or shutil.which("libreoffice")
-        or next((p for p in ["/usr/bin/soffice", "/usr/bin/libreoffice"] if Path(p).exists()), None)
-    )
-    if not soffice:
-        raise RuntimeError("LibreOffice soffice binary not found.")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        in_file = tmp_path / "teamsheet.docx"
-        in_file.write_bytes(docx_bytes)
-
-        cmd = [
-            str(soffice),
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(tmp_path),
-            str(in_file),
-        ]
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30
-        )
-        out_file = tmp_path / "teamsheet.pdf"
-        if not out_file.exists():
-            raise RuntimeError(
-                f"Output PDF not generated: {result.stderr.decode('utf-8', errors='ignore')}"
-            )
-        return out_file.read_bytes()
