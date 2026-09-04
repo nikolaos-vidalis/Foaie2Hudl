@@ -150,8 +150,9 @@ def convert(pdf_bytes):
     docx_bytes = fill(data, TEMPLATE)
     try:
         preview_pdf = docx_to_pdf(docx_bytes)
-    except Exception:
+    except Exception as err:
         preview_pdf = None
+        data["_preview_error"] = str(err)
     return data, docx_bytes, preview_pdf
 
 
@@ -365,7 +366,11 @@ with right:
                     if preview_pdf:
                         st.pdf(preview_pdf, height=750)
                     else:
-                        st.info(texts["preview_unavailable"])
+                        err_detail = data.get("_preview_error", "")
+                        msg = texts["preview_unavailable"]
+                        if err_detail:
+                            msg += f" ({err_detail})"
+                        st.info(msg)
 
         for message in failures:
             st.error(message)
