@@ -14,7 +14,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from fill_teamsheet import fill, player_display_name, player_markers
+from docx_to_pdf import convert as docx_to_pdf
+from fill_teamsheet import fill
 from parse_report import parse
 
 ROOT = Path(__file__).parent
@@ -73,9 +74,8 @@ TEXTS = {
             "sesiunii curente. Nimic nu este salvat pe server, iar foile de meci Hudl "
             "sunt generate în memorie și trimise direct în browserul tău."
         ),
-        "preview_label": "Vezi loturile",
-        "preview_starters": "Titulari",
-        "preview_subs": "Rezerve",
+        "preview_label": "Previzualizare foaie",
+        "preview_unavailable": "Previzualizarea PDF nu este disponibilă.",
         "warn_starters": "{team}: {count} titulari găsiți (așteptăm 11) — verifică raportul.",
         "warn_no_subs": "{team}: nicio rezervă găsită — verifică raportul.",
         "side_home": "gazde",
@@ -123,9 +123,8 @@ TEXTS = {
             "session only. Nothing is saved on the server, and the team sheets are built "
             "in memory and sent straight to your browser."
         ),
-        "preview_label": "View squads",
-        "preview_starters": "Starting XI",
-        "preview_subs": "Substitutes",
+        "preview_label": "Preview teamsheet",
+        "preview_unavailable": "PDF preview is not available.",
         "warn_starters": "{team}: found {count} starters (expected 11) — check the report.",
         "warn_no_subs": "{team}: no substitutes found — check the report.",
         "side_home": "home",
@@ -138,17 +137,22 @@ LANGUAGE_NAMES = {"ro": "Română", "en": "English"}
 
 @st.cache_data(show_spinner=False)
 def convert(pdf_bytes):
-    """Parse one report and build its teamsheet. Cached on the file's bytes.
+    """Parse one report, build its teamsheet, and render a PDF preview.
 
-    Any download click reruns the script, so without this every uploaded PDF would be
-    re-parsed on each click.
+    Cached on the file's bytes so that download clicks (which rerun the script) do not
+    re-parse every uploaded PDF.
 
     This is the boundary between the localized UI and the language-neutral conversion:
     only bytes go in, and the generated document keeps the template's own labels. The
     language setting affects the website only -- never pass `texts` past this point.
     """
     data = parse(io.BytesIO(pdf_bytes))
-    return data, fill(data, TEMPLATE)
+    docx_bytes = fill(data, TEMPLATE)
+    try:
+        preview_pdf = docx_to_pdf(docx_bytes)
+    except Exception:
+        preview_pdf = None
+    return data, docx_bytes, preview_pdf
 
 
 def slug(value):
@@ -181,43 +185,6 @@ def unique_name(name, taken):
     return f"{stem}_{index}.{suffix}"
 
 
-def escape_cell(text):
-    """Markdown-table-safe text: a stray pipe would otherwise split the cell."""
-    return str(text).replace("|", r"\|")
-
-
-def home_cell(player):
-    """Home name cell: "Name (C)" -- the same text the document carries."""
-    return escape_cell(player_display_name(player))
-
-
-def away_cell(player):
-    """Away name cell: mirrored, so the marker leads -- "(GK) Name"."""
-    markers = player_markers(player)
-    return escape_cell(f"{markers} {player['name']}" if markers else player["name"])
-
-
-def squad_table(home_players, away_players, home_name, away_name):
-    """One preview block as a Markdown table.
-
-    Four columns mirroring the template's "No. | Player | Player | No.", so the numbers
-    line up in narrow outer columns. Markdown rather than st.dataframe because its
-    alignment row can right-align the away side -- column_config cannot -- and because
-    it wraps long names instead of truncating them.
-    """
-    rows = [
-        f"| # | {escape_cell(home_name)} | {escape_cell(away_name)} | # |",
-        "|--:|:---|---:|:--|",          # numbers hug the names, names hug the outer edges
-    ]
-    for index in range(max(len(home_players), len(away_players))):
-        home = home_players[index] if index < len(home_players) else None
-        away = away_players[index] if index < len(away_players) else None
-        rows.append(
-            f"| {home['number'] if home else ''} | {home_cell(home) if home else ''} "
-            f"| {away_cell(away) if away else ''} | {away['number'] if away else ''} |"
-        )
-    return "\n".join(rows)
-
 
 def error_message(error, texts, filename):
     """Localized message for a failed report, falling back to the raw text."""
@@ -243,26 +210,13 @@ st.set_page_config(
 language = st.session_state.get("language", "ro")
 texts = TEXTS[language]
 
-# Four things Streamlit has no parameter for: the default 6rem of dead space above the
-# banner, Markdown table sizing, right-aligning the empty-state alert (st.info takes no
-# text_alignment), and right-aligning the expander label.
+# Three things Streamlit has no parameter for: the default 6rem of dead space above the
+# banner, right-aligning the empty-state alert (st.info takes no text_alignment), and
+# right-aligning the expander label.
 st.markdown(
     """
     <style>
       [data-testid="stMainBlockContainer"] { padding-top: 2.5rem; }
-
-      /* Tables size to their content by default, which leaves the mirrored away column
-         floating mid-card and the two name columns unequal. Fixed layout splits them
-         evenly and keeps both tables of a card identical. */
-      [data-testid="stMarkdown"] table { width: 100%; table-layout: fixed; }
-      [data-testid="stMarkdown"] table th:first-child,
-      [data-testid="stMarkdown"] table td:first-child,
-      [data-testid="stMarkdown"] table th:last-child,
-      [data-testid="stMarkdown"] table td:last-child { width: 3rem; }
-      [data-testid="stMarkdown"] table th:nth-child(2),
-      [data-testid="stMarkdown"] table td:nth-child(2),
-      [data-testid="stMarkdown"] table th:nth-child(3),
-      [data-testid="stMarkdown"] table td:nth-child(3) { width: calc((100% - 6rem) / 2); }
 
       /* Only the empty-state alert: the privacy alert stays left-aligned. */
       .st-key-empty-state [data-testid="stAlert"],
@@ -336,22 +290,22 @@ with right:
         with st.spinner(texts["processing"]):
             for upload in uploads:
                 try:
-                    data, document = convert(upload.getvalue())
+                    data, document, preview_pdf = convert(upload.getvalue())
                 except Exception as error:  # one bad report must not stop the others
                     failures.append(error_message(error, texts, upload.name))
                 else:
-                    results.append((data, document))
+                    results.append((data, document, preview_pdf))
 
         if len(results) > 1:
             archive = io.BytesIO()
             names = set()
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
-                for data, document in results:
+                for data, document, _ in results:
                     name = unique_name(teamsheet_filename(data), names)
                     names.add(name)
                     bundle.writestr(name, document)
 
-            dates = {data["date_iso"] for data, _ in results}
+            dates = {data["date_iso"] for data, _, _ in results}
             zip_name = f"Teamsheets_{dates.pop()}.zip" if len(dates) == 1 else "Teamsheets.zip"
             st.download_button(
                 texts["download_all"].format(count=len(results)),
@@ -364,7 +318,7 @@ with right:
                 key="download_all",
             )
 
-        for index, (data, document) in enumerate(results):
+        for index, (data, document, preview_pdf) in enumerate(results):
             home, away = data["home"], data["away"]
             with st.container(border=True):
                 st.markdown(
@@ -407,15 +361,11 @@ with right:
                     key=f"download_{index}",
                 )
 
-                with st.expander(texts["preview_label"], icon=":material/groups:"):
-                    for label, key in (
-                        (texts["preview_starters"], "starters"),
-                        (texts["preview_subs"], "subs"),
-                    ):
-                        st.caption(label, text_alignment="center")
-                        st.markdown(
-                            squad_table(home[key], away[key], home["name"], away["name"])
-                        )
+                with st.expander(texts["preview_label"], icon=":material/preview:"):
+                    if preview_pdf:
+                        st.pdf(preview_pdf, height=750)
+                    else:
+                        st.info(texts["preview_unavailable"])
 
         for message in failures:
             st.error(message)
