@@ -17,6 +17,7 @@ import streamlit as st
 from docx_to_pdf import convert as docx_to_pdf
 from fill_teamsheet import fill
 from parse_report import parse
+from sanitize import filename_slug
 
 ROOT = Path(__file__).parent
 TEMPLATE = ROOT / "Wyscout teamsheet template.docx"
@@ -28,8 +29,6 @@ STARTERS_EXPECTED = 11
 BANNER_IMAGE_WIDTH = 360      # px; the banner is full width, the logo must not be
 SOURCE_URL = "https://www.footballconnect.ro"
 
-# Characters Windows forbids in filenames.
-ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 TEXTS = {
     "ro": {
@@ -157,9 +156,8 @@ def convert(pdf_bytes):
 
 
 def slug(value):
-    """Filename-safe form of a value, keeping diacritics."""
-    cleaned = ILLEGAL_FILENAME_CHARS.sub("", str(value)).strip()
-    return re.sub(r"\s+", "_", cleaned).strip("_")
+    """Filename-safe form of a value, removing diacritics and special characters."""
+    return filename_slug(value)
 
 
 def teamsheet_filename(data):
@@ -167,12 +165,16 @@ def teamsheet_filename(data):
 
     Liga_Elitelor_U17_2026-08-30_SC_Dinamo_1948_vs_FC_Voluntari.docx
     """
+    home_slug = slug(data.get("home", {}).get("name", ""))
+    away_slug = slug(data.get("away", {}).get("name", ""))
+    matchup = f"{home_slug}_vs_{away_slug}".strip("_") if home_slug or away_slug else ""
     parts = [
-        slug(data["competition"]),
-        data["date_iso"],
-        f"{slug(data['home']['name'])}_vs_{slug(data['away']['name'])}",
+        slug(data.get("competition", "")),
+        slug(data.get("date_iso", "")),
+        matchup,
     ]
-    return "_".join(part for part in parts if part) + ".docx"
+    name = "_".join(part for part in parts if part)
+    return f"{name}.docx" if name else "Teamsheet.docx"
 
 
 def unique_name(name, taken):

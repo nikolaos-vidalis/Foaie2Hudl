@@ -47,6 +47,7 @@ Documentul generat nu este niciodată tradus, conține etichetele proprii ale ș
 | `app.py` | Interfața Streamlit (încărcare, texte RO/EN, descărcare) |
 | `parse_report.py` | Extrage informațiile meciului și loturile din PDF |
 | `fill_teamsheet.py` | Completează șablonul `.docx` |
+| `sanitize.py` | Normalizare text și generare nume sigure pentru fișiere |
 
 -----
 
