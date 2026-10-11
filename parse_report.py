@@ -18,11 +18,24 @@ Layout notes that drive the parsing below (verified against a sample report):
 Each player is returned as a dict: number, name, gk, captain. The gk / captain flags
 come from the report's own markers; the Hudl template has no column for them, so they
 are rendered as a "(GK)" / "(C)" suffix on the name (see fill_teamsheet.py).
+
+* The report pages may carry a "Schimbare tricou de joc" section: players who wore a
+  different number from the one on their squad page, one block per team:
+
+      CS Dinamo Bucureşti                               <- team label
+      Min. Jucator Nr. nou Motiv                        <- column header
+      0' 6 - Petrache Nicolas Cristian 20 Lipsa tricou  <- minute, old - name, new, reason
+
+  Old numbers are not unique within a squad (two players can both be listed as 6), so
+  a change is matched on name and old number together. A change at 0' replaces the
+  number; a later one keeps it and is recorded as `shirt_change` on the player.
 """
 
 import re
 
 import pdfplumber
+
+from sanitize import remove_diacritics
 
 # Column geometry, in PDF points from the left edge of the page.
 NUMBER_MAX_X = 60.0          # shirt-number column
@@ -43,6 +56,24 @@ PLAYER_SECTIONS = ("Titulari", "Rezerve")
 
 # Tokens that live in the right-hand "Info personal" column.
 INFO_TOKEN = re.compile(r"^(născut|FIFA|ID:|\d{2}\.\d{2}\.\d{4})", re.IGNORECASE)
+
+# "Schimbare tricou de joc" section. A row reads "0' 6 - Petrache Nicolas Cristian 20
+# Lipsa tricou". The reason may not start with "-" or a digit, so a substitution row
+# ("56' 10 - Bodron ... 47 - Doliș ...") never passes for a shirt change.
+SHIRT_CHANGE_HEADER = "Schimbare tricou de joc"
+SHIRT_CHANGE_ROW = re.compile(
+    r"^(?P<minute>.+?)\s+(?P<old>\d+)\s+-\s+(?P<name>[^\d]+?)\s+(?P<new>\d+)"
+    r"(?:\s+(?P<reason>[^-\d].*))?$"
+)
+# Sections that can follow it on the report pages; the first one ends it.
+REPORT_SECTIONS = re.compile(
+    r"^(Inlocuiri|Cartonase|Goluri marcate|Jucatori accidentati|Incidente|"
+    r"Observatiile arbitrului)",
+    re.IGNORECASE,
+)
+SKIPPED_LINE = re.compile(r"^(Min\.|Nu\s.*inregistr|Pagina\s)", re.IGNORECASE)
+KICK_OFF_MINUTE = re.compile(r"^0'?$")
+HALF_TIME_MINUTE = re.compile(r"^la\s+pauz", re.IGNORECASE)
 
 
 class ParseError(Exception):
@@ -152,6 +183,86 @@ def _squad_page(page, squads):
         )
 
 
+def _name_key(text):
+    """Comparison form of a name: no diacritics (ş / ș alike), single spaces, casefolded."""
+    return remove_diacritics(re.sub(r"\s+", " ", text or "").strip()).casefold()
+
+
+def _shirt_changes(lines):
+    """Rows of the "Schimbare tricou de joc" section, read from report-page text lines.
+
+    Each row is returned as a dict: team (the label above its block), minute, old, name,
+    new. Page footers are skipped so the section may run across a page break.
+    """
+    changes, team, inside = [], "", False
+    for raw in lines:
+        line = re.sub(r"\s+", " ", raw).strip()
+        if not line:
+            continue
+        if not inside:
+            inside = line.startswith(SHIRT_CHANGE_HEADER)
+            continue
+        if REPORT_SECTIONS.match(line):
+            break
+        if SKIPPED_LINE.match(line):
+            continue
+        row = SHIRT_CHANGE_ROW.match(line)
+        if row:
+            changes.append(
+                {
+                    "team": team,
+                    "minute": row["minute"],
+                    "old": int(row["old"]),
+                    "name": row["name"].strip(),
+                    "new": int(row["new"]),
+                }
+            )
+        else:
+            team = line
+    return changes
+
+
+def _minute_label(minute):
+    """Short minute for the teamsheet note: "60'" or "HT"."""
+    if HALF_TIME_MINUTE.match(minute):
+        return "HT"
+    return minute if minute.endswith("'") or not minute.isdigit() else f"{minute}'"
+
+
+def _find_player(squad, change):
+    """The player a change refers to: name and old number, else a unique name match."""
+    players = squad["starters"] + squad["subs"]
+    key = _name_key(change["name"])
+    named = [p for p in players if _name_key(p["name"]) == key]
+    exact = [p for p in named if p["number"] == change["old"]]
+    if len(exact) == 1:
+        return exact[0]
+    if not exact and len(named) == 1:
+        return named[0]
+    return None
+
+
+def _apply_shirt_changes(squads, changes):
+    """Apply shirt changes to the squads in place; return the ones that matched no player."""
+    issues = []
+    for change in changes:
+        team_key = _name_key(change["team"])
+        candidates = [s for s in squads.values() if _name_key(s["name"]) == team_key]
+        found = [p for s in candidates or squads.values() if (p := _find_player(s, change))]
+        if len(found) != 1:
+            issues.append({k: change[k] for k in ("team", "name", "old", "new")})
+            continue
+        player = found[0]
+        if KICK_OFF_MINUTE.match(change["minute"]):
+            player["number"] = change["new"]
+        else:
+            player["shirt_change"] = {
+                "number": change["new"],
+                "minute": _minute_label(change["minute"]),
+            }
+    return issues
+
+
 def _match_info(page):
     text = page.extract_text() or ""
 
@@ -183,10 +294,13 @@ def parse(file_like):
 
         info = _match_info(pdf.pages[0])
 
-        squads = {}
+        squads, report_lines = {}, []
         for page in pdf.pages:
-            if "Foaie de meci" in (page.extract_text() or ""):
+            text = page.extract_text() or ""
+            if "Foaie de meci" in text:
                 _squad_page(page, squads)
+            else:
+                report_lines.extend(text.splitlines())
 
     missing = [side for side in ("home", "away") if side not in squads]
     if missing:
@@ -200,6 +314,7 @@ def parse(file_like):
             sides=missing,
         )
 
+    info["shirt_change_issues"] = _apply_shirt_changes(squads, _shirt_changes(report_lines))
     info["home"] = squads["home"]
     info["away"] = squads["away"]
     return info

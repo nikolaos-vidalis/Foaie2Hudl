@@ -9,6 +9,7 @@ Conversia foilor oficiale de arbitraj (din format `.pdf`) în documente structur
 
 ### Funcționalități principale
 * **Extragere automată:** Procesează rapoartele `.pdf` ale arbitrilor pentru a colecta titularii, rezervele, numerele de pe tricou și datele despre meci.
+* **Schimbări de tricou:** Numerele modificate în secțiunea `Schimbare tricou de joc` a raportului sunt aplicate automat, pentru oricare dintre echipe. O schimbare făcută înainte de start înlocuiește numărul, iar una făcută în timpul meciului este notată lângă nume, de ex. `(#20 from 60')`.
 * **Procesare în lot:** Poți încărca mai multe rapoarte simultan, fiecare este convertit separat, cu descărcare individuală sau a tuturor într-o arhivă `.zip`.
 * **Interfață bilingvă:** Română (implicit) și engleză, comutabile din interfață. Doar site-ul este bilingv, documentul generat rămâne identic cu șablonul.
 * **Formatat pentru Hudl/Wyscout:** Completează direct șablonul oficial, păstrând structura, formatarea și etichetele acestuia, cu textul în negru.

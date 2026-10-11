@@ -33,6 +33,10 @@ BLACK = RGBColor(0, 0, 0)
 # the document must read the same regardless of the website's language setting.
 GK_MARKER, CAPTAIN_MARKER = "GK", "C"
 
+# Note for a player who changed shirt during the match: the number column keeps the
+# starting number and this note gives the later one. Fixed English, like the markers.
+SHIRT_CHANGE_NOTE = "(#{number} from {minute})"
+
 STARTERS_START, STARTERS_ROWS = 2, 11
 SUBS_START, SUBS_ROWS = 13, 9
 
@@ -48,9 +52,11 @@ def player_markers(player):
 
 
 def player_display_name(player):
-    """Player name with any (GK) / (C) / (GK/C) marker appended."""
-    markers = player_markers(player)
-    return f"{player['name']} {markers}" if markers else player["name"]
+    """Player name with any (GK) / (C) / (GK/C) marker and shirt-change note appended."""
+    parts = [player["name"], player_markers(player)]
+    if player.get("shirt_change"):
+        parts.append(SHIRT_CHANGE_NOTE.format(**player["shirt_change"]))
+    return " ".join(part for part in parts if part)
 
 
 def set_cell_text(cell, text):

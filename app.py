@@ -77,6 +77,10 @@ TEXTS = {
         "preview_unavailable": "Previzualizarea PDF nu este disponibilă.",
         "warn_starters": "{team}: {count} titulari găsiți (așteptăm 11) — verifică raportul.",
         "warn_no_subs": "{team}: nicio rezervă găsită — verifică raportul.",
+        "warn_shirt_change": (
+            "{team}: schimbarea de tricou pentru {name} (#{old} → #{new}) nu a putut fi "
+            "aplicată — verifică numărul în foaia generată."
+        ),
         "side_home": "gazde",
         "side_away": "oaspeți",
     },
@@ -126,6 +130,10 @@ TEXTS = {
         "preview_unavailable": "PDF preview is not available.",
         "warn_starters": "{team}: found {count} starters (expected 11) — check the report.",
         "warn_no_subs": "{team}: no substitutes found — check the report.",
+        "warn_shirt_change": (
+            "{team}: the shirt change for {name} (#{old} → #{new}) could not be "
+            "applied — check the number in the generated sheet."
+        ),
         "side_home": "home",
         "side_away": "away",
     },
@@ -353,6 +361,11 @@ with right:
                             texts["warn_no_subs"].format(team=squad["name"]),
                             icon=":material/warning:",
                         )
+                for issue in data.get("shirt_change_issues", []):
+                    st.warning(
+                        texts["warn_shirt_change"].format(**issue),
+                        icon=":material/warning:",
+                    )
 
                 st.download_button(
                     texts["download_one"],
